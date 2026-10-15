@@ -30,6 +30,7 @@ func TestCollectAntigravityLimits_ReadsFreshestSnapshot(t *testing.T) {
 		SessionID: "a",
 		PlanTier:  "Antigravity Starter Quota",
 		Quota: map[string]antigravity.QuotaWindow{
+			"gemini-5h":     {RemainingFraction: 0.80, ResetTime: "2026-09-22T08:06:55Z"},
 			"gemini-weekly": {RemainingFraction: 0.75, ResetTime: "2026-09-22T10:06:55Z"},
 			"3p-weekly":     {RemainingFraction: 1, ResetTime: "2026-09-22T10:11:18Z"},
 		},
@@ -45,15 +46,21 @@ func TestCollectAntigravityLimits_ReadsFreshestSnapshot(t *testing.T) {
 	if got.PlanType == nil || *got.PlanType != "Antigravity Starter Quota" {
 		t.Fatalf("PlanType = %v", got.PlanType)
 	}
-	if got.Primary == nil || got.Primary.UsedPercentage != 25 {
-		t.Fatalf("Primary (gemini-weekly) = %+v", got.Primary)
+	if got.Primary == nil || got.Primary.UsedPercentage != 20 {
+		t.Fatalf("Primary (gemini-5h) = %+v", got.Primary)
 	}
-	if got.Secondary == nil || got.Secondary.UsedPercentage != 0 {
-		t.Fatalf("Secondary (3p-weekly) = %+v", got.Secondary)
+	if got.Primary.WindowMinutes == nil || *got.Primary.WindowMinutes != 300 {
+		t.Fatalf("Primary.WindowMinutes = %v, want 300", got.Primary.WindowMinutes)
+	}
+	if got.Secondary == nil || got.Secondary.UsedPercentage != 25 {
+		t.Fatalf("Secondary (gemini-weekly) = %+v", got.Secondary)
+	}
+	if got.Secondary.WindowMinutes == nil || *got.Secondary.WindowMinutes != 10080 {
+		t.Fatalf("Secondary.WindowMinutes = %v, want 10080", got.Secondary.WindowMinutes)
 	}
 	wantReset := int64(1790071615) // 2026-09-22T10:06:55Z
-	if got.Primary.ResetsAt == nil || *got.Primary.ResetsAt != wantReset {
-		t.Fatalf("Primary.ResetsAt = %v, want %d", got.Primary.ResetsAt, wantReset)
+	if got.Secondary.ResetsAt == nil || *got.Secondary.ResetsAt != wantReset {
+		t.Fatalf("Secondary.ResetsAt = %v, want %d", got.Secondary.ResetsAt, wantReset)
 	}
 }
 

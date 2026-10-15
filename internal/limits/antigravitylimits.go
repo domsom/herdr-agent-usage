@@ -22,21 +22,21 @@ type CollectAntigravityLimitsOptions struct {
 	SessionsDir string
 }
 
-// antigravityWeeklyWindowMinutes is the duration Antigravity itself reports
-// for both quota buckets (a rolling week); recorded here only as a display
-// hint, since ResetsAt (parsed from the payload's own reset_time) is what
-// actually drives the countdown.
+// antigravity5HourWindowMinutes is the duration for short-window quotas (5 hours).
+const antigravity5HourWindowMinutes = 300
+
+// antigravityWeeklyWindowMinutes is the duration Antigravity reports
+// for weekly quota buckets (a rolling week).
 const antigravityWeeklyWindowMinutes = 10080
 
 // CollectAntigravityLimits builds a ProviderLimits from the freshest
 // Antigravity statusLine snapshot across every known session.
 //
-// Antigravity tracks two separate weekly allotments rather than one quota on
-// multiple time windows: "gemini-weekly" for its own model family and
-// "3p-weekly" for third-party models (Claude, GPT, ...) routed through it.
-// gemini-weekly is shown as Primary since Antigravity's own model is the
-// account's native quota; 3p-weekly as Secondary. A pane actively spending
-// third-party quota still sees both numbers, just not as the headline one.
+// Antigravity tracks both a short rolling window ("gemini-5h") and a weekly
+// window ("gemini-weekly") for Gemini, plus third-party allotments ("3p-5h",
+// "3p-weekly").
+// gemini-5h is shown as Primary (short window) and gemini-weekly as Secondary
+// (weekly window), matching the 5h / 7d display used by Claude and Codex.
 func CollectAntigravityLimits(nowMs int64, opts CollectAntigravityLimitsOptions) ProviderLimits {
 	const providerID = "agy"
 	const label = "Antigravity"
@@ -67,11 +67,15 @@ func CollectAntigravityLimits(nowMs int64, opts CollectAntigravityLimitsOptions)
 		plan := snap.PlanTier
 		pl.PlanType = &plan
 	}
-	if w, ok := snap.Quota["gemini-weekly"]; ok {
-		pl.Primary = quotaLimitWindow(w)
+	if w, ok := snap.Quota["gemini-5h"]; ok {
+		pl.Primary = quotaLimitWindow(w, antigravity5HourWindowMinutes)
+	} else if w, ok := snap.Quota["3p-5h"]; ok {
+		pl.Primary = quotaLimitWindow(w, antigravity5HourWindowMinutes)
 	}
-	if w, ok := snap.Quota["3p-weekly"]; ok {
-		pl.Secondary = quotaLimitWindow(w)
+	if w, ok := snap.Quota["gemini-weekly"]; ok {
+		pl.Secondary = quotaLimitWindow(w, antigravityWeeklyWindowMinutes)
+	} else if w, ok := snap.Quota["3p-weekly"]; ok {
+		pl.Secondary = quotaLimitWindow(w, antigravityWeeklyWindowMinutes)
 	}
 	return pl
 }
@@ -80,7 +84,7 @@ func CollectAntigravityLimits(nowMs int64, opts CollectAntigravityLimitsOptions)
 // ResetsAt is parsed from the bucket's own absolute reset_time rather than
 // derived from a relative "seconds remaining" figure, which would only be
 // accurate at the instant it was captured.
-func quotaLimitWindow(w antigravity.QuotaWindow) *LimitWindow {
+func quotaLimitWindow(w antigravity.QuotaWindow, windowMinutes int) *LimitWindow {
 	used := (1 - w.RemainingFraction) * 100
 	if used < 0 {
 		used = 0
@@ -89,7 +93,7 @@ func quotaLimitWindow(w antigravity.QuotaWindow) *LimitWindow {
 		used = 100
 	}
 	window := LimitWindow{UsedPercentage: used}
-	minutes := antigravityWeeklyWindowMinutes
+	minutes := windowMinutes
 	window.WindowMinutes = &minutes
 	if t, err := time.Parse(time.RFC3339, w.ResetTime); err == nil {
 		resetsAt := t.Unix()
