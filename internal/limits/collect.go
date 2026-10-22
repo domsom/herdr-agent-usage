@@ -241,10 +241,39 @@ func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []P
 		}
 	}
 
+	for i := range base {
+		base[i] = expireElapsedWindows(base[i], nowMs)
+	}
 	if opts.Attach != nil {
 		return opts.Attach(base, nowMs)
 	}
 	return base
+}
+
+// expireElapsedWindows treats a window as fully reset when its usage was
+// observed before a resetsAt that has since passed. Collectors that read a
+// cached snapshot (a Codex rollout, a Claude statusLine cache) keep reporting
+// the pre-reset usage until the harness runs again, so an idle provider would
+// otherwise sit at e.g. 96% used with a "soon" reset indefinitely.
+//
+// A reading taken at or after resetsAt is left alone: it already reflects the
+// reset. That covers rolling estimates computed now (OpenCode's local 5h
+// window), whose resetsAt is only when the oldest event leaves the window and
+// can round down to now while newer usage is still inside it.
+func expireElapsedWindows(p ProviderLimits, nowMs int64) ProviderLimits {
+	expire := func(w *LimitWindow) *LimitWindow {
+		if w == nil || w.ResetsAt == nil {
+			return w
+		}
+		if resetMs := *w.ResetsAt * 1000; resetMs > nowMs || p.FetchedAtMs >= resetMs {
+			return w
+		}
+		return &LimitWindow{UsedPercentage: 0, WindowMinutes: w.WindowMinutes}
+	}
+	p.Primary = expire(p.Primary)
+	p.Secondary = expire(p.Secondary)
+	p.Tertiary = expire(p.Tertiary)
+	return p
 }
 
 func strPtr(s string) *string { return &s }
