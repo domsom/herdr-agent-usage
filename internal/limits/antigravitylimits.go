@@ -67,23 +67,27 @@ func CollectAntigravityLimits(nowMs int64, opts CollectAntigravityLimitsOptions)
 		plan := snap.PlanTier
 		pl.PlanType = &plan
 	}
-	// Primary is the short window (5h). Fall back to weekly if 5h is absent.
+	// Primary is Gemini's native quota (gemini-5h if present, else gemini-weekly).
 	if w, ok := snap.Quota["gemini-5h"]; ok {
-		pl.Primary = quotaLimitWindow(w, antigravity5HourWindowMinutes)
-	} else if w, ok := snap.Quota["3p-5h"]; ok {
 		pl.Primary = quotaLimitWindow(w, antigravity5HourWindowMinutes)
 	} else if w, ok := snap.Quota["gemini-weekly"]; ok {
 		pl.Primary = quotaLimitWindow(w, antigravityWeeklyWindowMinutes)
-	} else if w, ok := snap.Quota["3p-weekly"]; ok {
-		pl.Primary = quotaLimitWindow(w, antigravityWeeklyWindowMinutes)
 	}
 
-	// Secondary is the weekly window when 5h was present for Primary.
-	if pl.Primary != nil && (pl.Primary.WindowMinutes == nil || *pl.Primary.WindowMinutes == antigravity5HourWindowMinutes) {
+	// Secondary is the mid/weekly window or third-party quota.
+	// If gemini-5h took Primary, gemini-weekly takes Secondary.
+	// Otherwise, 3p-weekly (or 3p-5h) takes Secondary.
+	if pl.Primary != nil && pl.Primary.WindowMinutes != nil && *pl.Primary.WindowMinutes == antigravity5HourWindowMinutes {
 		if w, ok := snap.Quota["gemini-weekly"]; ok {
 			pl.Secondary = quotaLimitWindow(w, antigravityWeeklyWindowMinutes)
 		} else if w, ok := snap.Quota["3p-weekly"]; ok {
 			pl.Secondary = quotaLimitWindow(w, antigravityWeeklyWindowMinutes)
+		}
+	} else {
+		if w, ok := snap.Quota["3p-weekly"]; ok {
+			pl.Secondary = quotaLimitWindow(w, antigravityWeeklyWindowMinutes)
+		} else if w, ok := snap.Quota["3p-5h"]; ok {
+			pl.Secondary = quotaLimitWindow(w, antigravity5HourWindowMinutes)
 		}
 	}
 	return pl
