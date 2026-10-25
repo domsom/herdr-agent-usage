@@ -46,14 +46,20 @@ func TestCollectAntigravityLimits_ReadsFreshestSnapshot(t *testing.T) {
 	if got.PlanType == nil || *got.PlanType != "Antigravity Starter Quota" {
 		t.Fatalf("PlanType = %v", got.PlanType)
 	}
-	if got.Primary == nil || got.Primary.UsedPercentage != 20 {
-		t.Fatalf("Primary (gemini-5h) = %+v", got.Primary)
+	if got.Primary == nil {
+		t.Fatal("got nil Primary")
+	}
+	if diff := got.Primary.UsedPercentage - 20; diff < -1e-9 || diff > 1e-9 {
+		t.Fatalf("Primary (gemini-5h) = %+v, want 20%% used", got.Primary)
 	}
 	if got.Primary.WindowMinutes == nil || *got.Primary.WindowMinutes != 300 {
 		t.Fatalf("Primary.WindowMinutes = %v, want 300", got.Primary.WindowMinutes)
 	}
-	if got.Secondary == nil || got.Secondary.UsedPercentage != 25 {
-		t.Fatalf("Secondary (gemini-weekly) = %+v", got.Secondary)
+	if got.Secondary == nil {
+		t.Fatal("got nil Secondary")
+	}
+	if diff := got.Secondary.UsedPercentage - 25; diff < -1e-9 || diff > 1e-9 {
+		t.Fatalf("Secondary (gemini-weekly) = %+v, want 25%% used", got.Secondary)
 	}
 	if got.Secondary.WindowMinutes == nil || *got.Secondary.WindowMinutes != 10080 {
 		t.Fatalf("Secondary.WindowMinutes = %v, want 10080", got.Secondary.WindowMinutes)
