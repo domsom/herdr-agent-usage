@@ -64,9 +64,27 @@ func remainingOf(used float64) int {
 	return int(math.Max(0, math.Min(100, math.Round(100-used))))
 }
 
+// effectiveWindow normalizes a limit window for display. When a recorded reset
+// time is in the past, the window duration has elapsed: providers reset quota
+// to 100% full upon reaching the reset boundary, so the window is rendered as
+// full (0% used) with no active reset countdown.
+func effectiveWindow(w *LimitWindow, nowMs int64) *LimitWindow {
+	if w == nil {
+		return nil
+	}
+	if w.ResetsAt != nil && *w.ResetsAt > 0 && *w.ResetsAt*1000 <= nowMs {
+		wCopy := *w
+		wCopy.UsedPercentage = 0
+		wCopy.ResetsAt = nil
+		wCopy.RunOut = nil
+		return &wCopy
+	}
+	return w
+}
+
 func formatResetIn(ms int64) string {
 	if ms <= 0 {
-		return "soon"
+		return ""
 	}
 	totalMin := ms / 60_000
 	days := totalMin / (60 * 24)
@@ -78,7 +96,10 @@ func formatResetIn(ms int64) string {
 	if hours > 0 {
 		return fmt.Sprintf("%dh %dm", hours, mins)
 	}
-	return fmt.Sprintf("%dm", mins)
+	if mins > 0 {
+		return fmt.Sprintf("%dm", mins)
+	}
+	return "soon"
 }
 
 func windowTag(w *LimitWindow, fallback string) string {
@@ -151,6 +172,7 @@ func windowLine(w *LimitWindow, tag string, layout PanelLayout, nowMs int64) str
 		track := bar.Dim(strings.Repeat("░", barWidth(layout.Columns)), layout.Color)
 		return "  " + tagCol + "  " + track + "   " + bar.Dim("—", layout.Color)
 	}
+	w = effectiveWindow(w, nowMs)
 	rem := remainingOf(w.UsedPercentage)
 	tone := bar.ToneForRemaining(float64(rem))
 	barStr := bar.Colorize(bar.RenderBar(layout.LimitPercent.BarFill(rem), barWidth(layout.Columns)), tone, layout.Color)
@@ -162,9 +184,11 @@ func windowLine(w *LimitWindow, tag string, layout PanelLayout, nowMs int64) str
 	line := "  " + tagCol + "  " + barStr + "   " + pct
 	if w.ResetsAt != nil && *w.ResetsAt > 0 {
 		hint := formatResetIn(*w.ResetsAt*1000 - nowMs)
-		tail := "    " + hint
-		if plainWidth(line)+utf8.RuneCountInString(tail) <= layout.Columns-1 {
-			line += "    " + bar.Dim(hint, layout.Color)
+		if hint != "" {
+			tail := "    " + hint
+			if plainWidth(line)+utf8.RuneCountInString(tail) <= layout.Columns-1 {
+				line += "    " + bar.Dim(hint, layout.Color)
+			}
 		}
 	}
 	return line
@@ -384,6 +408,7 @@ func richBlock(p ProviderLimits, layout PanelLayout, withExtras bool, nowMs int6
 	tertiaryTag := windowTag(p.Tertiary, "30d")
 
 	pushWindow := func(w *LimitWindow, tag string) {
+		w = effectiveWindow(w, nowMs)
 		lines = append(lines, windowLine(w, tag, layout, nowMs))
 		if warn := runOutLine(w, layout); warn != "" {
 			lines = append(lines, warn)
@@ -418,17 +443,17 @@ func richBlock(p ProviderLimits, layout PanelLayout, withExtras bool, nowMs int6
 	return lines
 }
 
-func compactLine(p ProviderLimits, layout PanelLayout) string {
+func compactLine(p ProviderLimits, layout PanelLayout, nowMs int64) string {
 	name := bar.Bold(p.Label, layout.Color)
 	var windows []string
 	if p.Primary != nil {
-		windows = append(windows, inlineWindow(p.Primary, windowTag(p.Primary, "5h"), layout))
+		windows = append(windows, inlineWindow(effectiveWindow(p.Primary, nowMs), windowTag(p.Primary, "5h"), layout))
 	}
 	if p.Secondary != nil {
-		windows = append(windows, inlineWindow(p.Secondary, windowTag(p.Secondary, "7d"), layout))
+		windows = append(windows, inlineWindow(effectiveWindow(p.Secondary, nowMs), windowTag(p.Secondary, "7d"), layout))
 	}
 	if p.Tertiary != nil {
-		windows = append(windows, inlineWindow(p.Tertiary, windowTag(p.Tertiary, "30d"), layout))
+		windows = append(windows, inlineWindow(effectiveWindow(p.Tertiary, nowMs), windowTag(p.Tertiary, "30d"), layout))
 	}
 
 	line := name
@@ -558,7 +583,7 @@ func subscriptionBlock(p ProviderLimits, layout PanelLayout, nowMs int64) panelB
 	return panelBlock{
 		rich:     func() []string { return richBlock(p, layout, true, nowMs) },
 		richSlim: func() []string { return richBlock(p, layout, false, nowMs) },
-		compact:  func() []string { return []string{compactLine(p, layout)} },
+		compact:  func() []string { return []string{compactLine(p, layout, nowMs)} },
 	}
 }
 
@@ -629,7 +654,7 @@ func groupedSubscriptionBlock(label string, members []ProviderLimits, layout Pan
 		compact: func() []string {
 			lines := []string{bar.Bold(label, layout.Color)}
 			for _, m := range members {
-				lines = append(lines, "  "+compactLine(memberWithAccountLabel(m), inner))
+				lines = append(lines, "  "+compactLine(memberWithAccountLabel(m), inner, nowMs))
 			}
 			return lines
 		},

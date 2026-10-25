@@ -384,3 +384,47 @@ func codexProfileSample(accountLabel string, usedPct float64) ProviderLimits {
 		FetchedAtMs:  1_700_000_000_000,
 	}
 }
+
+func TestFormatResetIn_CountdownAndExpired(t *testing.T) {
+	if got := formatResetIn(2 * 24 * 3600_000 + 3 * 3600_000); got != "2d 3h" {
+		t.Fatalf("got %q, want 2d 3h", got)
+	}
+	if got := formatResetIn(3 * 3600_000 + 42 * 60_000); got != "3h 42m" {
+		t.Fatalf("got %q, want 3h 42m", got)
+	}
+	if got := formatResetIn(45 * 60_000); got != "45m" {
+		t.Fatalf("got %q, want 45m", got)
+	}
+	if got := formatResetIn(30_000); got != "soon" {
+		t.Fatalf("got %q, want soon", got)
+	}
+	if got := formatResetIn(0); got != "" {
+		t.Fatalf("got %q, want empty for expired", got)
+	}
+	if got := formatResetIn(-100_000); got != "" {
+		t.Fatalf("got %q, want empty for past timestamp", got)
+	}
+}
+
+func TestFormatLimitsPanel_ExpiredWindowResetsToFull(t *testing.T) {
+	nowMs := int64(1_700_000_000_000)
+	pastReset := (nowMs - 3600_000) / 1000 // 1 hour ago
+	wm := 300
+	provider := ProviderLimits{
+		ProviderID: "claude",
+		Label:      "Claude",
+		Primary: &LimitWindow{
+			UsedPercentage: 75,
+			ResetsAt:       &pastReset,
+			WindowMinutes:  &wm,
+		},
+		FetchedAtMs: nowMs - 7200_000,
+	}
+	text := FormatLimitsPanel([]ProviderLimits{provider}, nowMs, wide)
+	if strings.Contains(text, "soon") {
+		t.Fatalf("expired window must not say 'soon':\n%s", text)
+	}
+	if !strings.Contains(text, "100% left") {
+		t.Fatalf("expired window must render as full (100%% left):\n%s", text)
+	}
+}
