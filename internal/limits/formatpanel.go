@@ -603,12 +603,21 @@ func groupedSubscriptionBlock(label string, members []ProviderLimits, layout Pan
 	}
 
 	render := func(withExtras bool) []string {
-		lines := []string{bar.Bold(label, layout.Color)}
+		heading := bar.Bold(label, layout.Color)
+		// If all members share the same label prefix as the group (e.g. Antigravity) and the first member has PlanType
+		if len(members) > 0 && members[0].PlanType != nil && *members[0].PlanType != "" && members[0].ProviderID == "agy" {
+			heading += " " + bar.Dim("·", layout.Color) + " " + *members[0].PlanType
+		}
+		lines := []string{heading}
 		for i, m := range members {
 			if i > 0 {
 				lines = append(lines, "")
 			}
-			sub := richBlock(memberWithAccountLabel(m), inner, withExtras, nowMs)
+			mCopy := memberWithAccountLabel(m)
+			if len(members) > 0 && members[0].ProviderID == "agy" {
+				mCopy.PlanType = nil
+			}
+			sub := richBlock(mCopy, inner, withExtras, nowMs)
 			lines = append(lines, indentLines(sub, "  ")...)
 		}
 		return lines

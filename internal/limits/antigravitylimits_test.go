@@ -132,3 +132,50 @@ func TestCollectAntigravityLimits_MissingBucketLeavesWindowNil(t *testing.T) {
 		t.Fatal("Secondary = nil, want the present 3p-weekly bucket")
 	}
 }
+
+func TestCollectAntigravityGroupedLimits(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	if err := antigravity.WriteSnapshot(dir, antigravity.Snapshot{
+		SessionID: "grouped",
+		PlanTier:  "Google AI Pro",
+		Quota: map[string]antigravity.QuotaWindow{
+			"gemini-5h":              {RemainingFraction: 0.95, ResetTime: "2026-10-26T02:09:56Z"},
+			"gemini-weekly":          {RemainingFraction: 0.90, ResetTime: "2026-10-31T07:42:29Z"},
+			"3p-5h":                  {RemainingFraction: 1.0, ResetTime: "2026-10-26T03:01:27Z"},
+			"3p-weekly":              {RemainingFraction: 1.0, ResetTime: "2026-11-01T22:01:27Z"},
+			"gemini-argon-wtu-weekly": {RemainingFraction: 0.85, ResetTime: "2026-11-01T22:01:27Z"},
+		},
+		UpdatedAtMs: 1000,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got := CollectAntigravityGroupedLimits(1000, CollectAntigravityLimitsOptions{SessionsDir: dir})
+	if len(got) != 3 {
+		t.Fatalf("got %d groups, want 3", len(got))
+	}
+
+	// 1. Gemini
+	if got[0].GroupLabel != "Antigravity" || got[0].AccountLabel != "Gemini" {
+		t.Errorf("got[0] = %+v", got[0])
+	}
+	if got[0].Primary == nil || got[0].Secondary == nil {
+		t.Errorf("got[0] missing primary or secondary windows: %+v", got[0])
+	}
+
+	// 2. Claude & GPT
+	if got[1].GroupLabel != "Antigravity" || got[1].AccountLabel != "Claude & GPT" {
+		t.Errorf("got[1] = %+v", got[1])
+	}
+	if got[1].Primary == nil || got[1].Secondary == nil {
+		t.Errorf("got[1] missing primary or secondary windows: %+v", got[1])
+	}
+
+	// 3. Gemini Argon
+	if got[2].GroupLabel != "Antigravity" || got[2].AccountLabel != "Gemini Argon" {
+		t.Errorf("got[2] = %+v", got[2])
+	}
+	if got[2].Secondary == nil {
+		t.Errorf("got[2] missing weekly window: %+v", got[2])
+	}
+}

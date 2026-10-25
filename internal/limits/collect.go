@@ -44,12 +44,10 @@ type CollectOptions struct {
 	Codex    []CodexProfileCollector
 	OpenCode []OpenCodeProfileCollector
 	Grok     []GrokProfileCollector
-	// Antigravity has no per-account profile concept (one Google account per
-	// install), so unlike the profile families above it is a single
-	// injectable collector rather than a slice. Nil leaves it uncollected in
-	// a bare CollectOptions{}, matching the profile families' unconfigured
-	// stub behavior for direct test callers.
 	Antigravity LimitsCollector
+	// AntigravityGrouped returns multiple ProviderLimits when third-party or Argon
+	// quotas are present, grouping them under "Antigravity".
+	AntigravityGrouped func(cwd *string, nowMs int64) []ProviderLimits
 	// Kilo has no per-account profile concept either (one Kilo Gateway login
 	// per store), so like Antigravity it is a single injectable collector.
 	Kilo LimitsCollector
@@ -148,6 +146,9 @@ func DefaultCollectOptions() CollectOptions {
 		Antigravity: func(_ *string, nowMs int64) ProviderLimits {
 			return CollectAntigravityLimits(nowMs, CollectAntigravityLimitsOptions{})
 		},
+		AntigravityGrouped: func(_ *string, nowMs int64) []ProviderLimits {
+			return CollectAntigravityGroupedLimits(nowMs, CollectAntigravityLimitsOptions{})
+		},
 		Kilo: func(_ *string, nowMs int64) ProviderLimits {
 			return CollectKiloLimits(nowMs, CollectKiloLimitsOptions{})
 		},
@@ -237,6 +238,13 @@ func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []P
 	}
 	for _, spec := range singleCollectorQuotaSpecs {
 		if opts.Only == nil || opts.Only[spec.id] {
+			if spec.id == antigravity.Provider.AgentID() && opts.AntigravityGrouped != nil {
+				grouped := opts.AntigravityGrouped(cwd, nowMs)
+				if len(grouped) > 0 {
+					base = append(base, grouped...)
+					continue
+				}
+			}
 			base = append(base, collect(spec.field(opts), spec.id, spec.label))
 		}
 	}
